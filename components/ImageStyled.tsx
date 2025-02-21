@@ -15,27 +15,39 @@ const inlineImageStyle = Platform.select({
   },
 });
 
-// Change 1: Create a union type that accepts both image sources and SVG components.
-type CustomImageSource = ImageSourcePropType | React.FC<SvgProps>;
+// Extend the union type to also accept an object with a default property.
+type CustomImageSource = 
+  | ImageSourcePropType 
+  | React.FC<SvgProps> 
+  | { default: React.FC<SvgProps> };
 
-// Change 1: Update the interface to use the union type for the 'source' prop.
 interface ImageStyledProps extends Omit<ImageProps, 'source'> {
   source: CustomImageSource;
 }
 
 const ImageStyled: React.FC<ImageStyledProps> = ({ source, style, ...rest }) => {
   const combinedStyle = [inlineImageStyle, style];
+  const dimensions = { width: 136, height: 55 };
 
-  // Change 2: Check if the source is an SVG component (a function) and render it accordingly.
+  // Determine if the source is an SVG component.
+  let SvgComponent: React.FC<SvgProps> | null = null;
+  
   if (typeof source === 'function') {
-    const SvgComponent = source as React.FC<SvgProps>;
-    const dimensions = Platform.select({
-      ios: { width: 136, height: 55 },
-      default: { width: 136, height: 55 },
-    }) || { width: 136, height: 55 };
-    return <SvgComponent width={dimensions.width} height={dimensions.height} {...rest as any} />;
+    // Directly a function (React component)
+    SvgComponent = source;
+  } else if (
+    typeof source === 'object' &&
+    source !== null &&
+    typeof (source as any).default === 'function'
+  ) {
+    // Imported as an object with a default function
+    SvgComponent = (source as any).default;
   }
-
+  
+  if (SvgComponent) {
+    return <SvgComponent width={dimensions.width} height={dimensions.height} {...(rest as any)} />;
+  }
+  
   // Otherwise, render it as a normal image.
   return (
     <Image
