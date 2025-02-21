@@ -3,7 +3,7 @@ import { Image, ScrollView, Text, View } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import logo from '../assets/images/logo.png';
-import styled_text from '../assets/images/styled_text.svg';
+import StyledText from '@/components/StyledText'
 import CustomButton from '@/components/CustomButton';
 import cards from '../assets/images/cards.png'
 import ImageStyled from '@/components/ImageStyled';
@@ -28,7 +28,7 @@ export default function App() {
           <View className="mt-5">
             <Text className="text-3xl text-white font-bold text-center leading-[40px]">
               Discover Endless Possibilities with{' '}
-              <ImageStyled source={styled_text} />
+              <ImageStyled source={StyledText} />
             </Text>
           </View>
 
