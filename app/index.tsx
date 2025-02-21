@@ -3,7 +3,6 @@ import { Image, ScrollView, Text, View } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import logo from '../assets/images/logo.png';
-import styled_text from '../assets/images/styled_text.png';
 import CustomButton from '@/components/CustomButton';
 import cards from '../assets/images/cards.png'
 

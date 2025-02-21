@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TextInputProps } from 'react-native';
+import { View, Text, TextInput, TextInputProps, TouchableOpacity, Platform } from 'react-native';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 
 interface FormFieldProps extends TextInputProps {
   title: string;
@@ -18,6 +19,7 @@ const FormField: React.FC<FormFieldProps> = ({
   ...props
 }) => {
   const [showPassword, setShowPassword] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
 
   return (
     <View className={`space-y-2 ${otherStyles}`}>
@@ -25,16 +27,36 @@ const FormField: React.FC<FormFieldProps> = ({
         {title}
       </Text>
 
-      <View className="border-2 border-black-200 w-full h-16 px-4 bg-black-100 rounded-2xl focus:border-secondary items-center">
+      {/* Outer View border toggles color on focus */}
+      <View
+        className={`border-2 ${
+          isFocused ? 'border-secondary' : 'border-black-200'
+        } w-full h-16 px-4 bg-black-100 rounded-2xl items-center flex-row`}
+      >
         <TextInput
           className="flex-1 text-white font-psemibold text-base"
+          // Conditionally apply web-only style and cast as any to satisfy TypeScript
+          style={Platform.OS === 'web' ? ({ outlineWidth: 0 } as any) : {}}
+          underlineColorAndroid="transparent"
           value={value}
           placeholder={placeHolder}
           placeholderTextColor="#7b7b8b"
           onChangeText={handleChangeText}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
           secureTextEntry={title === 'Password' && !showPassword}
           {...props}
         />
+
+        {title === 'Password' && (
+          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+            {showPassword ? (
+              <FontAwesome5 name="eye-slash" size={22} color="#CDCDE0" />
+            ) : (
+              <FontAwesome5 name="eye" size={22} color="#CDCDE0" />
+            )}
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
