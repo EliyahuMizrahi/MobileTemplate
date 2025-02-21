@@ -29,12 +29,12 @@ const FormField: React.FC<FormFieldProps> = ({
 
       {/* Outer View border toggles color on focus */}
       <View
-        className={`border-2 ${
+        className={`border-2  ${
           isFocused ? 'border-secondary' : 'border-black-200'
         } w-full h-16 px-4 bg-black-100 rounded-2xl items-center flex-row`}
       >
         <TextInput
-          className="flex-1 text-white font-psemibold text-base"
+          className="flex-1 text-white font-psemibold text-base py-4 px-full"
           // Conditionally apply web-only style and cast as any to satisfy TypeScript
           style={Platform.OS === 'web' ? ({ outlineWidth: 0 } as any) : {}}
           underlineColorAndroid="transparent"
