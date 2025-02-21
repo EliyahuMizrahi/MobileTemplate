@@ -5,9 +5,9 @@ import { Link } from 'expo-router';
 const index = () => {
   return (
     <View className="flex-1 items-center justify-center bg-white">
-      <Text>index</Text>
+      <Text className="text-3xl font-pblack">Appraisal</Text>
       <StatusBar style="auto" />
-      <Link href="/profile" style={{ color: 'blue' }}>Go to Profile</Link>
+      <Link href="/profile">Go to Profile</Link>
     </View>
   )
 }
