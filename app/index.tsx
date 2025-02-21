@@ -3,10 +3,9 @@ import { Image, ScrollView, Text, View } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import logo from '../assets/images/logo.png';
-import StyledText from '@/components/StyledText'
+import styled_text from '../assets/images/styled_text.png';
 import CustomButton from '@/components/CustomButton';
 import cards from '../assets/images/cards.png'
-import ImageStyled from '@/components/ImageStyled';
 
 export default function App() {
   return (
@@ -28,7 +27,9 @@ export default function App() {
           <View className="mt-5">
             <Text className="text-3xl text-white font-bold text-center leading-[40px]">
               Discover Endless Possibilities with{' '}
-              <ImageStyled source={StyledText} />
+              <Text className="relative text-secondary-100 pb-5 overflow-visible">
+                Appraisal
+              </Text>
             </Text>
           </View>
 
