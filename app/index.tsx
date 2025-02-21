@@ -1,17 +1,21 @@
 import { StatusBar } from 'expo-status-bar';
-import { Text, View } from 'react-native';
+import { Image, ScrollView, Text, View } from 'react-native';
 import { Link } from 'expo-router';
-import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import logo from '../assets/images/logo.png';
 
-const index = () => {
+export default function App() {
   return (
-    <View className="flex-1 items-center justify-center bg-white">
-      <Text className="text-3xl font-pblack">Appraisal</Text>
-      <FontAwesome5 name="house-user" size={40} color="black" />
-      <StatusBar style="auto" />
-      <Link href="/home">Go to Home</Link>
-    </View>
-  )
+    <SafeAreaView className="bg-primary flex-1">
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+        <View className="w-full items-center px-4 pt-4">
+          <Image 
+            source={logo}
+            className="w-32 h-20"
+            resizeMode="contain"
+          />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
 }
-
-export default index

@@ -1,27 +1,37 @@
 import { View, Text } from 'react-native';
-import { Tabs, Redirect } from 'expo-router';
+import { Tabs } from 'expo-router';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
-const TabIcon = ({ icon, color, name, focused }) => {
+type TabIconProps = {
+  icon: string;
+  color: string;
+  name: string;
+  focused: boolean;
+};
+
+const TabIcon = ({ icon, color, name, focused }: TabIconProps): JSX.Element => {
   return (
-    <View className="items-center justify-center gap-2">
+    <View className="items-center justify-center gap-2 -mb-12">
       {icon === "camera" ? (
         <MaterialIcons 
           name={icon} 
-          size={24} 
+          size={30} 
           color={color} 
-          className="w-full h-full text-center" 
+          className="w-auto h-auto text-center" 
         />
       ) : (
         <FontAwesome5 
           name={icon} 
           size={24} 
           color={color} 
-          className="w-full h-full text-center" 
+          className="w-auto h-auto text-center" 
         />
       )}
-      <Text className={`${focused ? 'font-psemibold' : 'font-pregular'} text-xs`}>
+      <Text
+        className={`${focused ? 'font-psemibold' : 'font-pregular'} text-xs`}
+        style={{ color: color }}
+      >
         {name}
       </Text>
     </View>
@@ -33,7 +43,15 @@ const TabsLayout = () => {
     <>
       <Tabs
         screenOptions={{
-          tabBarShowLabel: false
+          tabBarShowLabel: false,
+          tabBarActiveTintColor: '#FFA001',
+          tabBarInactiveBackgroundColor: '#CDCE0',
+          tabBarStyle: {
+            backgroundColor: '#161622',
+            borderTopWidth: 1,
+            borderTopColor: '#232533',
+            height: 84,
+          },
         }}
       >
         <Tabs.Screen
