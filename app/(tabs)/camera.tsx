@@ -1,40 +1,17 @@
-import React, { useEffect } from 'react';
-import { Text } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import React from "react";
+import { Platform, SafeAreaView, Text } from "react-native";
+import { NativeCamera } from "@/components/NativeCamera";  // Adjust path if needed
+import { WebCamera } from "@/components/WebCamera";        // Adjust path if needed
 
-const CameraScreen: React.FC = () => {
-  const [permission, requestPermission] = useCameraPermissions();
-
-  useEffect(() => {
-    if (!permission || !permission.granted) {
-      requestPermission();
-    }
-  }, [permission]);
-
-  if (!permission) {
-    return (
-      <SafeAreaView className="flex-1 bg-black justify-center items-center">
-        <Text className="text-white text-lg">Requesting camera permission...</Text>
-      </SafeAreaView>
-    );
+/**
+ * CameraScreen decides which camera component to render based on the platform.
+ */
+export default function CameraScreen() {
+  if (Platform.OS === "web") {
+    // Render the web-based camera
+    return <WebCamera />;
   }
 
-  if (!permission.granted) {
-    return (
-      <SafeAreaView className="flex-1 bg-black justify-center items-center">
-        <Text className="text-white text-lg">
-          Camera permission not granted. Please enable it in your device settings.
-        </Text>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView className="flex-1 bg-black">
-      <CameraView className="flex-1" facing="back" />
-    </SafeAreaView>
-  );
-};
-
-export default CameraScreen;
+  // Render the native (iOS/Android) camera
+  return <NativeCamera />;
+}
