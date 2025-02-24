@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from "react";
 import { SafeAreaView, Text, View } from "react-native";
 import Webcam from "react-webcam";
 import * as tf from "@tensorflow/tfjs";
+import { nonMaxSuppression } from "@/utils/nonMaxSuppression";
 
 /** A detection bounding box plus label info. */
 type Detection = {
@@ -13,178 +14,188 @@ type Detection = {
   class: number;
 };
 
+// Converts a YOLOv7 [x_center, y_center, w, h] to [x1, y1, x2, y2].
+function xywh2xyxy(box: number[]): number[] {
+  const [cx, cy, w, h] = box;
+  return [
+    cx - w / 2, // x1
+    cy - h / 2, // y1
+    cx + w / 2, // x2
+    cy + h / 2, // y2
+  ];
+}
+
 export function WebCamera() {
   const webcamRef = useRef<Webcam>(null);
   const [model, setModel] = useState<tf.GraphModel | null>(null);
   const [isModelReady, setIsModelReady] = useState(false);
   const [detections, setDetections] = useState<Detection[]>([]);
 
-  // NOTE: The SSD MobileNet model returns class IDs, not names.
-  // To display names, supply your own label mapping (e.g., for COCO).
+  // Update the model URL to point to your YOLOv7 model hosted on GitHub Pages.
   const MODEL_URL = "https://isaacsasson.github.io/tfjs-model/model.json";
 
   useEffect(() => {
     (async () => {
       await tf.ready();
-      const loadedModel = await tf.loadGraphModel(MODEL_URL);
+      const loadedModel = await tf.loadGraphModel(MODEL_URL, {
+        onProgress: (progress: number) => {
+          console.log(`Model loading progress: ${(progress * 100).toFixed(2)}%`);
+        },
+      });
       setModel(loadedModel);
       setIsModelReady(true);
-      console.log("Model loaded. Input nodes:", loadedModel.inputs);
-      console.log("Model loaded. Output nodes:", loadedModel.outputs);
+      console.log("YOLOv7 Model loaded. Input nodes:", loadedModel.inputs);
+      console.log("YOLOv7 Model loaded. Output nodes:", loadedModel.outputs);
+
+      // Optional warmup
+      const inputShape = loadedModel.inputs[0].shape;
+      if (inputShape) {
+        const dummyInput = tf.ones(inputShape as number[]);
+        const warmupResult = await loadedModel.executeAsync(dummyInput);
+        tf.dispose(warmupResult);
+        tf.dispose(dummyInput);
+      }
     })();
   }, []);
 
   const detectObjects = async () => {
     if (!model || !webcamRef.current?.video) return;
-    
+
     const videoEl = webcamRef.current.video as HTMLVideoElement;
     if (!videoEl.videoWidth || !videoEl.videoHeight) return;
-    
+
     // Get displayed video size
     const videoRect = videoEl.getBoundingClientRect();
     const displayedVideoW = videoRect.width;
     const displayedVideoH = videoRect.height;
-    
-    // Convert current video frame to a Tensor
+
+    // Preprocess the current video frame for YOLOv7
     let frameTensor = tf.browser.fromPixels(videoEl);
+
+    // If the image has 4 channels, slice out the alpha channel.
     if (frameTensor.shape[2] === 4) {
-      frameTensor = frameTensor.slice([0, 0, 0], [-1, -1, 3]);
+      frameTensor = frameTensor.slice(
+        [0, 0, 0] as [number, number, number],
+        [frameTensor.shape[0], frameTensor.shape[1], 3] as [number, number, number]
+      );
     }
-    
-    // Resize to 300x300 (SSD MobileNet input) and maintain uint8 type
-    const resized = tf.image.resizeBilinear(frameTensor, [300, 300]);
-    const inputTensor = resized.expandDims(0).toInt();
-    
-    // Execute the model using the correct input key ("input_tensor")
-    // The converted model returns 8 outputs; we use outputs[6] (class scores)
-    // and outputs[7] (candidate boxes) for postprocessing.
-    let outputs: tf.Tensor[];
+
+    // Resize to 640x640, normalize, transpose to [1,3,640,640]
+    const resized = tf.image.resizeBilinear(frameTensor, [640, 640]);
+    const normalized = resized.div(255.0);
+    const transposed = normalized.transpose([2, 0, 1]);
+    const inputTensor = transposed.expandDims(0);
+
+    // Execute the model
+    let output: tf.Tensor | tf.Tensor[];
     try {
-      outputs = (await model.executeAsync({ input_tensor: inputTensor })) as tf.Tensor[];
+      output = await model.executeAsync(inputTensor);
     } catch (err) {
       console.error("Error during model execution:", err);
-      tf.dispose([frameTensor, resized, inputTensor]);
+      tf.dispose([frameTensor, resized, normalized, transposed, inputTensor]);
       return;
     }
-    
-    console.log("Raw model outputs:", outputs.map(t => t.shape));
-    // Expected:
-    // outputs[6]: [1, 1917, 91]  <-- candidate class scores
-    // outputs[7]: [1, 1917, 4]   <-- candidate boxes
-    
-    const candidateClassesTensor = outputs[6];
-    const candidateBoxesTensor = outputs[7];
-    
-    const candidateClassesData = (await candidateClassesTensor.array()) as number[][][];
-    const candidateBoxesData = (await candidateBoxesTensor.array()) as number[][][];
-    const candidateClasses = candidateClassesData[0]; // shape [1917, 91]
-    const candidateBoxes = candidateBoxesData[0];     // shape [1917, 4]
-    
-    // For each candidate box, compute the maximum score and corresponding class.
-    const candidateScores = candidateClasses.map(row => {
-      let maxScore = 0;
-      let classId = -1;
-      for (let i = 0; i < row.length; i++) {
-        if (row[i] > maxScore) {
-          maxScore = row[i];
-          classId = i;
-        }
-      }
-      return { maxScore, classId };
-    });
-    
-    // Convert candidate boxes and scores to tensors for non-max suppression.
-    const boxesTensor2D = tf.tensor2d(candidateBoxes); // shape [1917, 4]
-    const scoresTensor1D = tf.tensor1d(candidateScores.map(item => item.maxScore));
-    
-    const selectedIndices = await tf.image.nonMaxSuppressionAsync(
-      boxesTensor2D,
-      scoresTensor1D,
-      100,   // max detections
-      0.5,   // IOU threshold
-      0.5    // score threshold
-    );
-    const selectedIndicesData = await selectedIndices.array() as number[];
-    
-    const newDetections: Detection[] = [];
-    // Scale coordinates from 300x300 input space to displayed video size.
-    selectedIndicesData.forEach(idx => {
-      const [ymin, xmin, ymax, xmax] = candidateBoxes[idx];
-      const score = candidateScores[idx].maxScore;
-      const classId = candidateScores[idx].classId;
-      newDetections.push({
-        x: xmin * displayedVideoW,
-        y: ymin * displayedVideoH,
-        width: (xmax - xmin) * displayedVideoW,
-        height: (ymax - ymin) * displayedVideoH,
+
+    const outputTensors = Array.isArray(output) ? output : [output];
+    const firstOutput = outputTensors[0];
+
+    // YOLOv7 often outputs shape [1, N, 6+], with [x, y, w, h, objectConfidence, classConfidence...]
+    // Or some variants might produce [1,N,6], depending on your exported model.
+    const outputArray = (firstOutput.arraySync() as number[][][])[0];
+
+    // Dispose the output Tensors
+    tf.dispose(outputTensors);
+
+    // Run your custom NMS that leaves you with [x, y, w, h, score, classId]
+    const allDetections = nonMaxSuppression(outputArray);
+
+    // Filter by detection threshold
+    const threshold = 0.8;
+    const filteredDetections = allDetections.filter((det) => det[4] >= threshold);
+
+    // Each detection is [cx, cy, w, h, score, class].
+    // Convert [cx, cy, w, h] → [x1, y1, x2, y2], then scale to the displayed size.
+    const newDetections: Detection[] = filteredDetections.map((det: number[]) => {
+      const [cx, cy, w, h, score, classId] = det;
+      const [x1, y1, x2, y2] = xywh2xyxy([cx, cy, w, h]);
+      return {
+        x: (x1 * displayedVideoW) / 640,
+        y: (y1 * displayedVideoH) / 640,
+        width: ((x2 - x1) * displayedVideoW) / 640,
+        height: ((y2 - y1) * displayedVideoH) / 640,
         score,
-        class: classId
-      });
+        class: classId,
+      };
     });
-    
+
     setDetections(newDetections);
-    
-    tf.dispose([frameTensor, resized, inputTensor, boxesTensor2D, scoresTensor1D, selectedIndices, ...outputs]);
+    tf.dispose([frameTensor, resized, normalized, transposed, inputTensor]);
   };
-  
+
+  // Use requestAnimationFrame for continuous detection
   useEffect(() => {
-    const timer = setInterval(detectObjects, 300);
-    return () => clearInterval(timer);
+    let animationFrameId: number;
+    const detectLoop = async () => {
+      await detectObjects();
+      animationFrameId = requestAnimationFrame(detectLoop);
+    };
+    if (model) {
+      detectLoop();
+    }
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
   }, [model]);
-  
+
   if (!isModelReady) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#222", justifyContent: "center", alignItems: "center" }}>
-        <Text style={{ color: "#fff" }}>Loading SSD MobileNet Model...</Text>
+      <SafeAreaView className="flex-1 bg-gray-900 justify-center items-center">
+        <Text className="text-white">Loading YOLOv7 Model...</Text>
       </SafeAreaView>
     );
   }
-  
+
   return (
-    <SafeAreaView style={{ flex: 1, overflow: "hidden", backgroundColor: "#333" }}>
-      <Webcam 
-        ref={webcamRef} 
-        className="w-full h-full object-contain" 
-        videoConstraints={{ width: window.innerWidth, height: window.innerHeight }}
+    <SafeAreaView className="flex-1 bg-gray-800">
+      <Webcam
+        ref={webcamRef}
+        className="w-full h-full object-contain"
+        videoConstraints={{
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
       {/* Overlay for detections */}
-      <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
-        {detections.map((det, i) => {
-          // Compute center and radius from detection box
-          const centerX = det.x + det.width / 2;
-          const centerY = det.y + det.height / 2;
-          const radius = (det.width + det.height) / 4; // average radius
-          // Outer circle style
-          const outerStyle = {
-            position: "absolute" as const,
-            left: centerX - radius,
-            top: centerY - radius,
-            width: radius * 2,
-            height: radius * 2,
-            borderRadius: radius,
-            borderWidth: 2,
-            borderColor: "#a5bbde",
-            backgroundColor: "rgba(165,187,222, 0.2)",
-            overflow: "hidden" as const
-          };
-          // Inner small circle style
-          const innerSize = 10;
-          const innerStyle = {
-            position: "absolute" as const,
-            left: radius - innerSize / 2,
-            top: radius - innerSize / 2,
-            width: innerSize,
-            height: innerSize,
-            borderRadius: innerSize / 2,
-            backgroundColor: "#a5bbde"
-          };
-          return (
-            <View key={i} style={outerStyle}>
-              <View style={innerStyle} />
-            </View>
-          );
-        })}
+      <View className="absolute inset-0">
+        {detections.map((det, i) => (
+          <View
+            key={i}
+            style={{
+              position: "absolute",
+              left: det.x,
+              top: det.y,
+              width: det.width,
+              height: det.height,
+              borderWidth: 2,
+              borderColor: "#a5bbde",
+              backgroundColor: "rgba(165,187,222,0.2)",
+            }}
+          >
+            {/* Text Label for Class and Score */}
+            <Text
+              style={{
+                color: "#FFFFFF",
+                backgroundColor: "rgba(0, 0, 0, 0.5)",
+                margin: 2,
+                paddingHorizontal: 4,
+                borderRadius: 2,
+              }}
+            >
+              Class: {det.class} | Score: {(det.score * 100).toFixed(1)}%
+            </Text>
+          </View>
+        ))}
       </View>
     </SafeAreaView>
   );
