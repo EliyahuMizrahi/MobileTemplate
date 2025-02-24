@@ -12,7 +12,7 @@ type TabIconProps = {
 
 const TabIcon = ({ icon, color, name, focused }: TabIconProps): JSX.Element => {
   return (
-    <View className="items-center justify-center gap-2 -mb-12">
+    <View className="items-center justify-center gap-2 -mb-10">
       {icon === "camera" ? (
         <MaterialIcons 
           name={icon} 
@@ -50,7 +50,7 @@ const TabsLayout = () => {
             backgroundColor: '#161622',
             borderTopWidth: 1,
             borderTopColor: '#232533',
-            height: 84,
+            height: 100,
           },
         }}
       >

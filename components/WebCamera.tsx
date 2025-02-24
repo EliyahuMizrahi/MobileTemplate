@@ -1,18 +1,47 @@
-import React, { useRef, useEffect, useState } from "react";
-import { SafeAreaView, View, Text } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { 
+  Platform, 
+  SafeAreaView, 
+  View, 
+  Text 
+} from "react-native";
 import Webcam from "react-webcam";
 import * as tf from "@tensorflow/tfjs";
 import * as cocossd from "@tensorflow-models/coco-ssd";
 
 export function WebCamera() {
+  // If we're not on web, render a placeholder (or nothing).
+  if (Platform.OS !== "web") {
+    return (
+      <SafeAreaView
+        style={{
+          flex: 1,
+          backgroundColor: "black",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ color: "#fff" }}>WebCamera only supported on web.</Text>
+      </SafeAreaView>
+    );
+  }
+
   const webcamRef = useRef<Webcam>(null);
   const [model, setModel] = useState<cocossd.ObjectDetection | null>(null);
   const [predictions, setPredictions] = useState<any[]>([]);
   const [isModelReady, setIsModelReady] = useState(false);
-  // Scale factors to convert video coordinates to container coordinates.
+
+  // Scale factors to convert video coordinates to container coordinates
   const [scale, setScale] = useState({ scaleX: 1, scaleY: 1 });
 
   useEffect(() => {
+    // Check if the browser supports getUserMedia
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.error("Webcam is not supported in this browser.");
+      return;
+    }
+
+    // Load TF and the COCO-SSD model
     const loadModel = async () => {
       await tf.ready();
       const loadedModel = await cocossd.load();
@@ -22,11 +51,10 @@ export function WebCamera() {
     loadModel();
   }, []);
 
-  // Updates the scale factors based on the video's displayed size.
+  // Updates the scale factors based on the video's displayed size
   const updateScale = () => {
     const video = webcamRef.current?.video;
     if (video && video.videoWidth && video.videoHeight) {
-      // Get the current dimensions of the rendered video element.
       const rect = video.getBoundingClientRect();
       const scaleX = rect.width / video.videoWidth;
       const scaleY = rect.height / video.videoHeight;
@@ -34,13 +62,14 @@ export function WebCamera() {
     }
   };
 
+  // Recompute scale on resize
   useEffect(() => {
     updateScale();
     window.addEventListener("resize", updateScale);
     return () => window.removeEventListener("resize", updateScale);
   }, []);
 
-  // Runs object detection on the video at a fixed interval.
+  // Runs object detection on the video every 200ms (~5fps for speed)
   const detectObjects = async () => {
     if (
       model &&
@@ -58,41 +87,58 @@ export function WebCamera() {
   useEffect(() => {
     const intervalId = setInterval(() => {
       detectObjects();
-    }, 200); // roughly 5 times per second
+    }, 200);
     return () => clearInterval(intervalId);
   }, [model]);
 
   if (!isModelReady) {
     return (
-      <SafeAreaView className="flex-1 bg-secondary justify-center items-center">
-        <Text className="text-white">Loading TensorFlow model for web...</Text>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "black", justifyContent: "center", alignItems: "center" }}>
+        <Text style={{ color: "#fff" }}>Loading TensorFlow model for web...</Text>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-secondary">
-      {/* The Webcam fills the container using object-cover to scale appropriately */}
+    <SafeAreaView style={{ flex: 1, backgroundColor: "black" }}>
+      {/* The webcam fills the container; objectFit: cover to scale properly */}
       <Webcam
         ref={webcamRef}
-        className="w-full h-full object-cover"
-        onUserMedia={updateScale} // update scale when media starts
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        onUserMedia={updateScale} 
       />
 
-      {/* Render bounding box overlays scaled to the displayed video */}
+      {/* Render bounding boxes scaled to the displayed video */}
       {predictions.map((item, index) => {
         const [x, y, width, height] = item.bbox;
         const left = x * scale.scaleX;
         const top = y * scale.scaleY;
         const boxWidth = width * scale.scaleX;
         const boxHeight = height * scale.scaleY;
+
         return (
           <View
             key={index}
-            className="absolute border-2 border-secondary justify-center items-center"
-            style={{ left, top, width: boxWidth, height: boxHeight }}
+            style={{
+              position: "absolute",
+              borderWidth: 2,
+              borderColor: "#00FF00",
+              left,
+              top,
+              width: boxWidth,
+              height: boxHeight,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
           >
-            <Text className="bg-secondary text-black font-bold p-1">
+            <Text
+              style={{
+                backgroundColor: "#00FF00",
+                color: "#000",
+                fontWeight: "bold",
+                padding: 2,
+              }}
+            >
               {item.class} ({Math.round(item.score * 100)}%)
             </Text>
           </View>

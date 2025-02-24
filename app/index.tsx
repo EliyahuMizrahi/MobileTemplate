@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { Image, ScrollView, Text, View } from 'react-native';
-import { Redirect, router } from 'expo-router';
+import { Link, Redirect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import logo from '../assets/images/logo.png';
 import CustomButton from '@/components/CustomButton';
@@ -35,6 +35,7 @@ export default function App() {
           <Text className="text-sm font-pregular text-gray-100 mt-7 text-center">
             Where creativity meets innovation: embark on a journey of limitless exploration with Appraisal
           </Text>
+          <Link href="/home">YAYAYAYAYAYAY</Link>
 
           <CustomButton 
             title="Continue with Email"

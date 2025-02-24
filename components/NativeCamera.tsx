@@ -1,29 +1,65 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, SafeAreaView } from "react-native";
-import { Camera, useCameraPermissions } from "expo-camera";
-import * as tf from "@tensorflow/tfjs";
-import "@tensorflow/tfjs-react-native";
-import * as cocossd from "@tensorflow-models/coco-ssd";
-import { cameraWithTensors } from "@tensorflow/tfjs-react-native";
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  SafeAreaView, 
+  Platform 
+} from "react-native";
+
+// Only require these on mobile to avoid "navigator" errors on web:
+let Camera: any;
+let useCameraPermissions: any;
+let tf: any;
+let cameraWithTensors: any;
+let cocossd: any;
+
+if (Platform.OS !== "web") {
+  Camera = require("expo-camera").Camera;
+  useCameraPermissions = require("expo-camera").useCameraPermissions;
+  tf = require("@tensorflow/tfjs-react-native");
+  cameraWithTensors = tf.cameraWithTensors;
+  cocossd = require("@tensorflow-models/coco-ssd");
+}
+
+// Example bounding box component
 import { ObjectBox } from "@/components/ObjectBox";
 
-// Cast Camera to any to satisfy cameraWithTensors's expected component type.
-const TensorCamera = cameraWithTensors(Camera as any);
-
 export function NativeCamera() {
-  // Camera type: "back" or "front"
+  // If we're on web, just render a "not supported" view
+  if (Platform.OS === "web") {
+    return (
+      <SafeAreaView
+        style={{
+          flex: 1,
+          backgroundColor: "black",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ color: "#fff" }}>NativeCamera is not supported on web.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // State
   const [type, setType] = useState<"front" | "back">("back");
   const [permission, requestPermission] = useCameraPermissions();
   const [isTfReady, setIsTfReady] = useState(false);
-  const [model, setModel] = useState<cocossd.ObjectDetection | null>(null);
+  const [model, setModel] = useState<any>(null);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [predictions, setPredictions] = useState<any[]>([]);
 
   useEffect(() => {
-    const loadModel = async () => {
+    // Only run if we're not on web
+    if (Platform.OS === "web") return;
+
+    (async () => {
+      // Request camera permission
       if (!permission || !permission.granted) {
         await requestPermission();
       }
+
       // Wait for TensorFlow to be ready
       await tf.ready();
       setIsTfReady(true);
@@ -36,14 +72,12 @@ export function NativeCamera() {
       } catch (err) {
         console.log("Error loading model:", err);
       }
-    };
-
-    loadModel();
+    })();
   }, [permission]);
 
   // The main camera loop for predictions
   const handleCameraStream = (
-    images: IterableIterator<tf.Tensor3D>,
+    images: IterableIterator<any>,
     updatePreview: () => void,
     gl: WebGLRenderingContext
   ) => {
@@ -61,6 +95,7 @@ export function NativeCamera() {
         } catch (err) {
           console.error("Detection error:", err);
         } finally {
+          // Dispose of the tensor to free memory
           tf.dispose(nextImageTensor);
         }
       }
@@ -74,7 +109,7 @@ export function NativeCamera() {
     setType((prev) => (prev === "back" ? "front" : "back"));
   };
 
-  // Return loading/permission screens first
+  // Return early states (permissions, TF loading, model loading, etc.)
   if (!permission) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: "black", justifyContent: "center", alignItems: "center" }}>
@@ -104,7 +139,10 @@ export function NativeCamera() {
     );
   }
 
-  // Render the TensorCamera and bounding boxes
+  // Create TensorCamera after we've ensured tf is loaded
+  const TensorCamera = cameraWithTensors(Camera);
+
+  // Render the TensorCamera with bounding box overlays
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "black" }}>
       <View style={{ flex: 1, position: "relative" }}>
@@ -125,6 +163,7 @@ export function NativeCamera() {
         {/* Overlays for predictions */}
         <View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}>
           {predictions.map((prediction, i) => {
+            // Only display if score is high enough
             if (prediction.score > 0.66) {
               const marginLeft = Math.round(prediction.bbox[0]) * 3;
               const marginTop = Math.round(prediction.bbox[1]) * 3;
