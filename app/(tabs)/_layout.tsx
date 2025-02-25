@@ -2,6 +2,7 @@ import { View, Text } from 'react-native';
 import { Tabs } from 'expo-router';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import React from 'react';
 
 type TabIconProps = {
   icon: string;

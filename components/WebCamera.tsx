@@ -1,11 +1,10 @@
-import React, { useRef, useEffect, useState } from "react";
-import { SafeAreaView, Text, View } from "react-native";
+import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from "react";
+import { Text, View } from "react-native";
 import Webcam from "react-webcam";
 import * as tf from "@tensorflow/tfjs";
 import { nonMaxSuppression } from "@/utils/nonMaxSuppression";
 
-/** A detection bounding box plus label info. */
-type Detection = {
+export type Detection = {
   x: number;
   y: number;
   width: number;
@@ -14,38 +13,76 @@ type Detection = {
   class: number;
 };
 
-// Converts a YOLOv7 [x_center, y_center, w, h] to [x1, y1, x2, y2].
+// Convert [cx, cy, w, h] → [x1, y1, x2, y2]
 function xywh2xyxy(box: number[]): number[] {
   const [cx, cy, w, h] = box;
-  return [
-    cx - w / 2, // x1
-    cy - h / 2, // y1
-    cx + w / 2, // x2
-    cy + h / 2, // y2
-  ];
+  return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
 }
 
-export function WebCamera() {
+interface WebCameraProps {
+  onDetection?: (detection: Detection | null) => void;
+}
+
+// Helper function to map detection coordinates from video to display
+function mapToDisplayed(
+  det: Detection,
+  videoW: number,
+  videoH: number,
+  displayedW: number,
+  displayedH: number
+) {
+  let source_width, source_height, source_x, source_y;
+  if (videoW / videoH > displayedW / displayedH) {
+    // Video is wider, crop sides
+    source_height = videoH;
+    source_width = videoH * (displayedW / displayedH);
+    source_x = (videoW - source_width) / 2;
+    source_y = 0;
+  } else {
+    // Video is taller, crop top/bottom
+    source_width = videoW;
+    source_height = videoW * (displayedH / displayedW);
+    source_x = 0;
+    source_y = (videoH - source_height) / 2;
+  }
+
+  const displayedX = ((det.x - source_x) / source_width) * displayedW;
+  const displayedY = ((det.y - source_y) / source_height) * displayedH;
+  const displayedWidth = (det.width / source_width) * displayedW;
+  const displayedHeight = (det.height / source_height) * displayedH;
+  return {
+    x: displayedX,
+    y: displayedY,
+    width: displayedWidth,
+    height: displayedHeight,
+    score: det.score,
+    class: det.class,
+  };
+}
+
+export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
   const webcamRef = useRef<Webcam>(null);
   const [model, setModel] = useState<tf.GraphModel | null>(null);
   const [isModelReady, setIsModelReady] = useState(false);
   const [detections, setDetections] = useState<Detection[]>([]);
+  const [chosenIndex, setChosenIndex] = useState<number>(-1);
 
-  // Update the model URL to point to your YOLOv7 model hosted on GitHub Pages.
+  // Forward the webcam ref to parent component
+  useImperativeHandle(ref, () => webcamRef.current);
+
+  // YOLOv7 model URL
   const MODEL_URL = "https://isaacsasson.github.io/tfjs-model/model.json";
 
   useEffect(() => {
     (async () => {
       await tf.ready();
       const loadedModel = await tf.loadGraphModel(MODEL_URL, {
-        onProgress: (progress: number) => {
-          console.log(`Model loading progress: ${(progress * 100).toFixed(2)}%`);
+        onProgress: (p) => {
+          console.log(`Model loading: ${(p * 100).toFixed(2)}%`);
         },
       });
       setModel(loadedModel);
       setIsModelReady(true);
-      console.log("YOLOv7 Model loaded. Input nodes:", loadedModel.inputs);
-      console.log("YOLOv7 Model loaded. Output nodes:", loadedModel.outputs);
 
       // Optional warmup
       const inputShape = loadedModel.inputs[0].shape;
@@ -58,35 +95,56 @@ export function WebCamera() {
     })();
   }, []);
 
+  // Finds the detection whose center is closest to the screen center
+  const pickCenterDetection = (
+    allDets: Detection[],
+    screenW: number,
+    screenH: number
+  ) => {
+    if (allDets.length === 0) return -1;
+    const centerX = screenW / 2;
+    const centerY = screenH / 2;
+
+    let minDist = Number.MAX_VALUE;
+    let bestIndex = -1;
+
+    allDets.forEach((det, index) => {
+      const detCenterX = det.x + det.width / 2;
+      const detCenterY = det.y + det.height / 2;
+      const dist = (detCenterX - centerX) ** 2 + (detCenterY - centerY) ** 2;
+      if (dist < minDist) {
+        minDist = dist;
+        bestIndex = index;
+      }
+    });
+
+    return bestIndex;
+  };
+
   const detectObjects = async () => {
     if (!model || !webcamRef.current?.video) return;
-
     const videoEl = webcamRef.current.video as HTMLVideoElement;
     if (!videoEl.videoWidth || !videoEl.videoHeight) return;
 
-    // Get displayed video size
+    const videoW = videoEl.videoWidth;
+    const videoH = videoEl.videoHeight;
     const videoRect = videoEl.getBoundingClientRect();
-    const displayedVideoW = videoRect.width;
-    const displayedVideoH = videoRect.height;
+    const displayedW = videoRect.width;
+    const displayedH = videoRect.height;
 
-    // Preprocess the current video frame for YOLOv7
     let frameTensor = tf.browser.fromPixels(videoEl);
-
-    // If the image has 4 channels, slice out the alpha channel.
     if (frameTensor.shape[2] === 4) {
       frameTensor = frameTensor.slice(
-        [0, 0, 0] as [number, number, number],
-        [frameTensor.shape[0], frameTensor.shape[1], 3] as [number, number, number]
+        [0, 0, 0],
+        [frameTensor.shape[0], frameTensor.shape[1], 3]
       );
     }
 
-    // Resize to 640x640, normalize, transpose to [1,3,640,640]
     const resized = tf.image.resizeBilinear(frameTensor, [640, 640]);
     const normalized = resized.div(255.0);
     const transposed = normalized.transpose([2, 0, 1]);
     const inputTensor = transposed.expandDims(0);
 
-    // Execute the model
     let output: tf.Tensor | tf.Tensor[];
     try {
       output = await model.executeAsync(inputTensor);
@@ -98,105 +156,124 @@ export function WebCamera() {
 
     const outputTensors = Array.isArray(output) ? output : [output];
     const firstOutput = outputTensors[0];
-
-    // YOLOv7 often outputs shape [1, N, 6+], with [x, y, w, h, objectConfidence, classConfidence...]
-    // Or some variants might produce [1,N,6], depending on your exported model.
     const outputArray = (firstOutput.arraySync() as number[][][])[0];
 
-    // Dispose the output Tensors
     tf.dispose(outputTensors);
 
-    // Run your custom NMS that leaves you with [x, y, w, h, score, classId]
     const allDetections = nonMaxSuppression(outputArray);
+    const threshold = 0.1;
+    const filteredDetections = allDetections.filter(
+      (det) => det[4] >= threshold
+    );
 
-    // Filter by detection threshold
-    const threshold = 0.8;
-    const filteredDetections = allDetections.filter((det) => det[4] >= threshold);
-
-    // Each detection is [cx, cy, w, h, score, class].
-    // Convert [cx, cy, w, h] → [x1, y1, x2, y2], then scale to the displayed size.
-    const newDetections: Detection[] = filteredDetections.map((det: number[]) => {
-      const [cx, cy, w, h, score, classId] = det;
-      const [x1, y1, x2, y2] = xywh2xyxy([cx, cy, w, h]);
-      return {
-        x: (x1 * displayedVideoW) / 640,
-        y: (y1 * displayedVideoH) / 640,
-        width: ((x2 - x1) * displayedVideoW) / 640,
-        height: ((y2 - y1) * displayedVideoH) / 640,
-        score,
-        class: classId,
-      };
-    });
+    // Calculate detections in original video coordinates
+    const newDetections: Detection[] = filteredDetections.map(
+      (det: number[]) => {
+        const [cx, cy, w, h, score, classId] = det;
+        const x1 = (cx - w / 2) * (videoW / 640);
+        const y1 = (cy - h / 2) * (videoH / 640);
+        const width = w * (videoW / 640);
+        const height = h * (videoH / 640);
+        return {
+          x: x1,
+          y: y1,
+          width,
+          height,
+          score,
+          class: classId,
+        };
+      }
+    );
 
     setDetections(newDetections);
+
+    // Map detections to displayed coordinates for rendering
+    const displayedDets = newDetections.map(det => 
+      mapToDisplayed(det, videoW, videoH, displayedW, displayedH)
+    );
+    
+    const chosenDetIndex = pickCenterDetection(
+      displayedDets,
+      displayedW,
+      displayedH
+    );
+    setChosenIndex(chosenDetIndex);
+    
+    const chosenDet =
+      chosenDetIndex >= 0 ? newDetections[chosenDetIndex] : null;
+
+    if (onDetection) {
+      onDetection(chosenDet);
+    }
+
     tf.dispose([frameTensor, resized, normalized, transposed, inputTensor]);
   };
 
-  // Use requestAnimationFrame for continuous detection
   useEffect(() => {
     let animationFrameId: number;
-    const detectLoop = async () => {
+    const loop = async () => {
       await detectObjects();
-      animationFrameId = requestAnimationFrame(detectLoop);
+      animationFrameId = requestAnimationFrame(loop);
     };
-    if (model) {
-      detectLoop();
-    }
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
+    if (model) loop();
+    return () => cancelAnimationFrame(animationFrameId);
   }, [model]);
 
   if (!isModelReady) {
     return (
-      <SafeAreaView className="flex-1 bg-gray-900 justify-center items-center">
-        <Text className="text-white">Loading YOLOv7 Model...</Text>
-      </SafeAreaView>
+      <View className="flex-1 bg-gray-900 justify-center items-center">
+        <Text className="text-white font-medium">Loading YOLOv7 Model...</Text>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-800">
+    <View className="flex-1 bg-gray-800">
+      {/* Main camera feed */}
       <Webcam
         ref={webcamRef}
         className="w-full h-full object-contain"
         videoConstraints={{
-          width: window.innerWidth,
-          height: window.innerHeight,
+          width: typeof window !== 'undefined' ? window.innerWidth : 640,
+          height: typeof window !== 'undefined' ? window.innerHeight : 480,
         }}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
-      {/* Overlay for detections */}
+
+      {/* Detections overlay */}
       <View className="absolute inset-0">
-        {detections.map((det, i) => (
-          <View
-            key={i}
-            style={{
-              position: "absolute",
-              left: det.x,
-              top: det.y,
-              width: det.width,
-              height: det.height,
-              borderWidth: 2,
-              borderColor: "#a5bbde",
-              backgroundColor: "rgba(165,187,222,0.2)",
-            }}
-          >
-            {/* Text Label for Class and Score */}
-            <Text
+        {detections.map((det, i) => {
+          if (!webcamRef.current?.video) return null;
+          
+          const videoEl = webcamRef.current.video as HTMLVideoElement;
+          const videoW = videoEl.videoWidth;
+          const videoH = videoEl.videoHeight;
+          const videoRect = videoEl.getBoundingClientRect();
+          const displayedW = videoRect.width;
+          const displayedH = videoRect.height;
+          
+          const displayedDet = mapToDisplayed(det, videoW, videoH, displayedW, displayedH);
+          const isChosen = i === chosenIndex;
+          
+          return (
+            <View
+              key={i}
+              className="absolute border-2"
               style={{
-                color: "#FFFFFF",
-                backgroundColor: "rgba(0, 0, 0, 0.5)",
-                margin: 2,
-                paddingHorizontal: 4,
-                borderRadius: 2,
+                left: displayedDet.x,
+                top: displayedDet.y,
+                width: displayedDet.width,
+                height: displayedDet.height,
               }}
             >
-              Class: {det.class} | Score: {(det.score * 100).toFixed(1)}%
-            </Text>
-          </View>
-        ))}
+              <View className={`absolute inset-0 ${isChosen ? "border-[#a5bbde] bg-blue-200/20" : "border-gray-500 bg-gray-200/20"}`} />
+              <Text className="text-white bg-black/50 m-1 px-2 rounded text-xs font-medium">
+                Class: {det.class} | {(det.score * 100).toFixed(1)}%
+              </Text>
+            </View>
+          );
+        })}
       </View>
-    </SafeAreaView>
+    </View>
   );
-}
+});
