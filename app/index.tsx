@@ -5,8 +5,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import logo from '../assets/images/logo.png';
 import CustomButton from '@/components/CustomButton';
 import cards from '../assets/images/cards.png'
+import { useGlobalContext } from '@/context/GlobalProvider';
 
 export default function App() {
+
+const {isLoading, isLoggedIn} = useGlobalContext();
+
+if (!isLoading && isLoggedIn) return <Redirect href = "/home"/>
+
   return (
     <SafeAreaView className="bg-primary flex-1">
       <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
@@ -40,7 +46,7 @@ export default function App() {
           <CustomButton 
             title="Continue with Email"
             handlePress={() => router.push('/sign-in')}
-            containerStyles="w-full mt-7"
+            containerStyles="w-full sm:w-3/6 mt-7"
           />
         </View>
       </ScrollView>
