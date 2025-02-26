@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from "react";
-import { SafeAreaView, View, Text, Animated } from "react-native";
+import { SafeAreaView, View, Text, Animated, Platform } from "react-native";
 import { WebCamera, type Detection } from "@/components/WebCamera";
+import { NativeCamera } from "@/components/NativeCamera";
 import CustomButton from "@/components/CustomButton";
 import { router, useFocusEffect } from "expo-router";
 
@@ -8,7 +9,8 @@ export default function CameraScreen() {
   const [boundingBox, setBoundingBox] = useState<Detection | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isCaptured, setIsCaptured] = useState(false);
-  const webcamRef = useRef<any>(null);
+  const cameraRef = useRef<any>(null);
+  const isWeb = Platform.OS === 'web';
   
   // Animation values
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -29,35 +31,47 @@ export default function CameraScreen() {
   );
 
   const handleCapture = () => {
-    if (!webcamRef.current?.video || !boundingBox) {
-      console.error("Video element not found or no bounding box detected");
+    if (!cameraRef.current || !boundingBox) {
+      console.error("Camera element not found or no bounding box detected");
       return;
     }
 
-    const video = webcamRef.current.video;
-    const canvas = document.createElement("canvas");
-    canvas.width = boundingBox.width;
-    canvas.height = boundingBox.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      console.error("Could not get canvas context");
-      return;
-    }
-    // Draw only the detected object
-    ctx.drawImage(
-      video,
-      boundingBox.x,
-      boundingBox.y,
-      boundingBox.width,
-      boundingBox.height,
-      0,
-      0,
-      boundingBox.width,
-      boundingBox.height
-    );
+    if (isWeb) {
+      const video = cameraRef.current.video;
+      const canvas = document.createElement("canvas");
+      canvas.width = boundingBox.width;
+      canvas.height = boundingBox.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        console.error("Could not get canvas context");
+        return;
+      }
+      // Draw only the detected object
+      ctx.drawImage(
+        video,
+        boundingBox.x,
+        boundingBox.y,
+        boundingBox.width,
+        boundingBox.height,
+        0,
+        0,
+        boundingBox.width,
+        boundingBox.height
+      );
 
-    const croppedImage = canvas.toDataURL("image/png");
-    setCapturedImage(croppedImage);
+      const croppedImage = canvas.toDataURL("image/png");
+      setCapturedImage(croppedImage);
+    } else {
+      // For native, take a picture and crop it
+      cameraRef.current.takePictureAsync({
+        skipProcessing: false,
+        quality: 1,
+      }).then((photo: any) => {
+        // In real implementation, you'd crop the photo based on boundingBox
+        setCapturedImage(photo.uri);
+      });
+    }
+    
     setIsCaptured(true);
 
     Animated.sequence([
@@ -82,7 +96,7 @@ export default function CameraScreen() {
     ]).start(() => {
       router.push({
         pathname: "/(appraise)/appraise",
-        params: { thumbnail: croppedImage },
+        params: { thumbnail: capturedImage },
       });
     });
   };
@@ -91,15 +105,20 @@ export default function CameraScreen() {
     <SafeAreaView className="flex-1 bg-[#161622]">
       {/* Camera view */}
       <View className="flex-1 relative">
-        <WebCamera ref={webcamRef} onDetection={handleDetection} />
+        {isWeb ? (
+          <WebCamera ref={cameraRef} onDetection={handleDetection} />
+        ) : (
+          <NativeCamera ref={cameraRef} onDetection={handleDetection} />
+        )}
+        
         {/* Center indicator */}
-        <View className="absolute top-1/2 left-1/2 items-center">
-          <View className="w-4 h-4 rounded-full border-2 border-[#a5bbde] -ml-2 -mt-2 bg-transparent" />
-          <Text className="text-[#a5bbde] font-medium text-xs mt-1 -ml-20 bg-[#161622]/70 px-2 py-1 rounded">
+        <View className="absolute inset-0 items-center justify-center">
+          <View className="w-4 h-4 rounded-full border-2 border-[#a5bbde] bg-transparent" />
+          <Text className="text-[#a5bbde] font-medium text-xs mt-1 bg-[#161622]/70 px-2 py-1 rounded text-center">
             Center object to appraise
           </Text>
         </View>
-        {/* Removed extra bounding box overlay */}
+        
         {/* Captured image overlay (animated) */}
         {isCaptured && capturedImage && (
           <Animated.Image
@@ -121,6 +140,7 @@ export default function CameraScreen() {
           />
         )}
       </View>
+      
       {/* Controls */}
       <View className="absolute bottom-0 left-0 right-0 p-4 bg-[#161622] bg-opacity-80">
         <CustomButton

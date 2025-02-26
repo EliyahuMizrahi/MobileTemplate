@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from "react";
-import { Text, View } from "react-native";
+import { Text, View, ActivityIndicator } from "react-native";
 import Webcam from "react-webcam";
-import * as tf from "@tensorflow/tfjs";
+import { ready, loadGraphModel, browser, image, dispose, Tensor } from "@tensorflow/tfjs";
 import { nonMaxSuppression } from "@/utils/nonMaxSuppression";
 
 export type Detection = {
@@ -62,10 +62,11 @@ function mapToDisplayed(
 
 export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
   const webcamRef = useRef<Webcam>(null);
-  const [model, setModel] = useState<tf.GraphModel | null>(null);
+  const [model, setModel] = useState<any | null>(null);
   const [isModelReady, setIsModelReady] = useState(false);
   const [detections, setDetections] = useState<Detection[]>([]);
   const [chosenIndex, setChosenIndex] = useState<number>(-1);
+  const [loadingProgress, setLoadingProgress] = useState(0);
 
   // Forward the webcam ref to parent component
   useImperativeHandle(ref, () => webcamRef.current);
@@ -75,10 +76,11 @@ export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
 
   useEffect(() => {
     (async () => {
-      await tf.ready();
-      const loadedModel = await tf.loadGraphModel(MODEL_URL, {
+      await ready();
+      const loadedModel = await loadGraphModel(MODEL_URL, {
         onProgress: (p) => {
           console.log(`Model loading: ${(p * 100).toFixed(2)}%`);
+          setLoadingProgress(p);
         },
       });
       setModel(loadedModel);
@@ -87,10 +89,15 @@ export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
       // Optional warmup
       const inputShape = loadedModel.inputs[0].shape;
       if (inputShape) {
-        const dummyInput = tf.ones(inputShape as number[]);
-        const warmupResult = await loadedModel.executeAsync(dummyInput);
-        tf.dispose(warmupResult);
-        tf.dispose(dummyInput);
+        try {
+          const dummyInput = browser.fromPixels(new ImageData(1, 1)).resizeBilinear([640, 640])
+            .div(255.0).transpose([2, 0, 1]).expandDims(0);
+          const warmupResult = await loadedModel.execute(dummyInput);
+          dispose(warmupResult);
+          dispose(dummyInput);
+        } catch (err) {
+          console.error("Warmup error:", err);
+        }
       }
     })();
   }, []);
@@ -132,7 +139,7 @@ export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
     const displayedW = videoRect.width;
     const displayedH = videoRect.height;
 
-    let frameTensor = tf.browser.fromPixels(videoEl);
+    let frameTensor = browser.fromPixels(videoEl);
     if (frameTensor.shape[2] === 4) {
       frameTensor = frameTensor.slice(
         [0, 0, 0],
@@ -140,17 +147,17 @@ export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
       );
     }
 
-    const resized = tf.image.resizeBilinear(frameTensor, [640, 640]);
+    const resized = image.resizeBilinear(frameTensor, [640, 640]);
     const normalized = resized.div(255.0);
     const transposed = normalized.transpose([2, 0, 1]);
     const inputTensor = transposed.expandDims(0);
 
-    let output: tf.Tensor | tf.Tensor[];
+    let output: Tensor | Tensor[];
     try {
-      output = await model.executeAsync(inputTensor);
+      output = await model.execute(inputTensor);
     } catch (err) {
       console.error("Error during model execution:", err);
-      tf.dispose([frameTensor, resized, normalized, transposed, inputTensor]);
+      dispose([frameTensor, resized, normalized, transposed, inputTensor]);
       return;
     }
 
@@ -158,7 +165,7 @@ export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
     const firstOutput = outputTensors[0];
     const outputArray = (firstOutput.arraySync() as number[][][])[0];
 
-    tf.dispose(outputTensors);
+    dispose(outputTensors);
 
     const allDetections = nonMaxSuppression(outputArray);
     const threshold = 0.1;
@@ -206,7 +213,7 @@ export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
       onDetection(chosenDet);
     }
 
-    tf.dispose([frameTensor, resized, normalized, transposed, inputTensor]);
+    dispose([frameTensor, resized, normalized, transposed, inputTensor]);
   };
 
   useEffect(() => {
@@ -221,14 +228,24 @@ export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
 
   if (!isModelReady) {
     return (
-      <View className="flex-1 bg-gray-900 justify-center items-center">
-        <Text className="text-white font-medium">Loading YOLOv7 Model...</Text>
+      <View className="flex-1 bg-[#161622] justify-center items-center">
+        <ActivityIndicator size="large" color="#a5bbde" />
+        <Text className="text-white font-medium mt-4">Loading YOLOv7 Model...</Text>
+        <View className="w-64 h-2 bg-gray-800 rounded-full mt-2 overflow-hidden">
+          <View 
+            className="h-full bg-[#a5bbde] rounded-full" 
+            style={{ width: `${loadingProgress * 100}%` }} 
+          />
+        </View>
+        <Text className="text-white text-xs mt-1">
+          {Math.floor(loadingProgress * 100)}%
+        </Text>
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-gray-800">
+    <View className="flex-1 bg-[#161622]">
       {/* Main camera feed */}
       <Webcam
         ref={webcamRef}
@@ -264,9 +281,10 @@ export const WebCamera = forwardRef(({ onDetection }: WebCameraProps, ref) => {
                 top: displayedDet.y,
                 width: displayedDet.width,
                 height: displayedDet.height,
+                borderColor: isChosen ? "#a5bbde" : "#666666",
               }}
             >
-              <View className={`absolute inset-0 ${isChosen ? "border-[#a5bbde] bg-blue-200/20" : "border-gray-500 bg-gray-200/20"}`} />
+              <View className={`absolute inset-0 ${isChosen ? "bg-secondary/20" : "bg-gray-200/20"}`} />
               <Text className="text-white bg-black/50 m-1 px-2 rounded text-xs font-medium">
                 Class: {det.class} | {(det.score * 100).toFixed(1)}%
               </Text>
