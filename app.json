@@ -11,14 +11,12 @@
     "ios": {
       "package": "com.elicky.appraisal",
       "supportsTablet": true
-      
     },
     "android": {
       "package": "com.elicky.appraisal",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-        
       }
     },
     "web": {
