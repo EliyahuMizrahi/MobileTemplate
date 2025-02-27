@@ -7,13 +7,12 @@ import React from 'react';
 type TabIconProps = {
   icon: string;
   color: string;
-  name: string;
   focused: boolean;
 };
 
-const TabIcon = ({ icon, color, name, focused }: TabIconProps): JSX.Element => {
+const TabIcon = ({ icon, color, focused }: TabIconProps): JSX.Element => {
   return (
-    <View className="items-center justify-center gap-2 -mb-10">
+    <View className="items-center justify-center gap-2 -mb-9">
       {icon === "camera" ? (
         <MaterialIcons 
           name={icon} 
@@ -29,12 +28,6 @@ const TabIcon = ({ icon, color, name, focused }: TabIconProps): JSX.Element => {
           className="w-auto h-auto text-center" 
         />
       )}
-      <Text
-        className={`${focused ? 'font-psemibold' : 'font-pregular'} text-xs`}
-        style={{ color: color }}
-      >
-        {name}
-      </Text>
     </View>
   );
 };
@@ -51,7 +44,7 @@ const TabsLayout = () => {
             backgroundColor: '#161622',
             borderTopWidth: 1,
             borderTopColor: '#232533',
-            height: 100,
+            height: 80,
           },
         }}
       >
@@ -64,7 +57,7 @@ const TabsLayout = () => {
               <TabIcon 
                 icon="house-user"
                 color={color} 
-                name="Home" 
+             
                 focused={focused} 
               />
             ),
@@ -79,7 +72,7 @@ const TabsLayout = () => {
               <TabIcon 
                 icon="camera"
                 color={color} 
-                name="Camera" 
+                
                 focused={focused} 
               />
             ),
@@ -94,7 +87,7 @@ const TabsLayout = () => {
               <TabIcon 
                 icon="user-alt"
                 color={color} 
-                name="Profile" 
+             
                 focused={focused} 
               />
             ),

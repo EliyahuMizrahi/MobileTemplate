@@ -81,3 +81,14 @@ export const getCurrentUser = async () => {
     console.log(error)
   }
 }
+export const getAllPosts = async () => {
+  try {
+    const posts = await databases.listDocuments(
+      config.databaseId,
+      config.appraisedCollectionId
+    );
+    return posts.documents;
+  } catch (error) {
+    console.log(error);
+  }
+};
