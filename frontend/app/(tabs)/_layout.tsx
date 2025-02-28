@@ -1,52 +1,37 @@
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
 import { Tabs } from 'expo-router';
-import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import React from 'react';
-
-type TabIconProps = {
-  icon: string;
-  color: string;
-  focused: boolean;
-};
-
-const TabIcon = ({ icon, color, focused }: TabIconProps): JSX.Element => {
-  return (
-    <View className="flex items-center justify-center h-full -mb-9">
-      {icon === "camera" ? (
-        <View className="flex items-center justify-center">
-          <MaterialIcons 
-            name={icon} 
-            size={30} 
-            color={color}
-          />
-        </View>
-      ) : (
-        <View className="flex items-center justify-center">
-          <FontAwesome5 
-            name={icon} 
-            size={24} 
-            color={color}
-          />
-        </View>
-      )}
-    </View>
-  );
-};
+import { usePathname } from 'expo-router';
+import TabTrailIndicator from '@/components/TabTrailIndicator';
+import TabIcon from '@/components/TabIcon';
 
 const TabsLayout = () => {
+  const activeColor = '#a5bbde';
+  const tabBarHeight = 80;
+
+  // Get the current pathname
+  const pathname = usePathname();
+
+  // Determine the active tab index based on the URL
+  let activeTabIndex = 0;
+  if (pathname.includes('/camera')) {
+    activeTabIndex = 1;
+  } else if (pathname.includes('/profile')) {
+    activeTabIndex = 2;
+  }
+
   return (
-    <>
+    <View className="flex-1 relative">
       <Tabs
         screenOptions={{
           tabBarShowLabel: false,
-          tabBarActiveTintColor: '#a5bbde',
+          tabBarActiveTintColor: activeColor,
           tabBarInactiveBackgroundColor: '#CDCE0',
           tabBarStyle: {
             backgroundColor: '#161622',
             borderTopWidth: 1,
             borderTopColor: '#232533',
-            height: 80,
+            height: tabBarHeight,
           },
           tabBarItemStyle: {
             height: '100%',
@@ -64,7 +49,7 @@ const TabsLayout = () => {
               <TabIcon 
                 icon="house-user"
                 color={color}
-                focused={focused} 
+                focused={focused}
               />
             ),
           }}
@@ -78,7 +63,7 @@ const TabsLayout = () => {
               <TabIcon 
                 icon="camera"
                 color={color}
-                focused={focused} 
+                focused={focused}
               />
             ),
           }}
@@ -92,13 +77,25 @@ const TabsLayout = () => {
               <TabIcon 
                 icon="user-alt"
                 color={color}
-                focused={focused} 
+                focused={focused}
               />
             ),
           }}
-        />        
+        />
       </Tabs>
-    </>
+
+      {/* Heart rate trail indicator */}
+      <TabTrailIndicator
+        activeIndex={activeTabIndex}
+        numTabs={3}
+        color={activeColor}
+        dotSize={8}
+        tabBarHeight={tabBarHeight}
+        animationDuration={300}
+        fadeOutDuration={800}
+        maxTrailLength={50}
+      />
+    </View>
   );
 };
 
