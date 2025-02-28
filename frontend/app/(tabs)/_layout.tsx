@@ -12,21 +12,23 @@ type TabIconProps = {
 
 const TabIcon = ({ icon, color, focused }: TabIconProps): JSX.Element => {
   return (
-    <View className="items-center justify-center gap-2 -mb-9">
+    <View className="flex items-center justify-center h-full -mb-9">
       {icon === "camera" ? (
-        <MaterialIcons 
-          name={icon} 
-          size={30} 
-          color={color} 
-          className="w-auto h-auto text-center" 
-        />
+        <View className="flex items-center justify-center">
+          <MaterialIcons 
+            name={icon} 
+            size={30} 
+            color={color}
+          />
+        </View>
       ) : (
-        <FontAwesome5 
-          name={icon} 
-          size={24} 
-          color={color} 
-          className="w-auto h-auto text-center" 
-        />
+        <View className="flex items-center justify-center">
+          <FontAwesome5 
+            name={icon} 
+            size={24} 
+            color={color}
+          />
+        </View>
       )}
     </View>
   );
@@ -46,6 +48,11 @@ const TabsLayout = () => {
             borderTopColor: '#232533',
             height: 80,
           },
+          tabBarItemStyle: {
+            height: '100%',
+            paddingTop: 0,
+            paddingBottom: 0,
+          },
         }}
       >
         <Tabs.Screen
@@ -56,8 +63,7 @@ const TabsLayout = () => {
             tabBarIcon: ({ color, focused }) => (
               <TabIcon 
                 icon="house-user"
-                color={color} 
-             
+                color={color}
                 focused={focused} 
               />
             ),
@@ -71,8 +77,7 @@ const TabsLayout = () => {
             tabBarIcon: ({ color, focused }) => (
               <TabIcon 
                 icon="camera"
-                color={color} 
-                
+                color={color}
                 focused={focused} 
               />
             ),
@@ -86,8 +91,7 @@ const TabsLayout = () => {
             tabBarIcon: ({ color, focused }) => (
               <TabIcon 
                 icon="user-alt"
-                color={color} 
-             
+                color={color}
                 focused={focused} 
               />
             ),
