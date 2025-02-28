@@ -8,45 +8,41 @@ interface TabTrailIndicatorProps {
   color: string;
   dotSize?: number;
   tabBarHeight?: number;
-  animationDuration?: number; // not as crucial now; we use a distance-based approach
+  // We won't rely heavily on animationDuration since we do distance-based timing,
+  // but we'll keep it for a default base time.
+  animationDuration?: number;
   fadeOutDuration?: number;
   maxTrailLength?: number;
 }
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-// Background color to fade into (same as your tab bar background or screen background)
+// Background color to which we fade the trail
 const BACKGROUND_COLOR = '#161622';
 
-/**
- * This component animates a circle (dot) from one tab to another and
- * briefly runs a "heartbeat" in the middle of that move, then continues
- * to the final position. The heartbeat is always the same shape.
- */
 const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
   activeIndex,
   numTabs,
   color,
-  dotSize = 8,
+  dotSize = 2,
   tabBarHeight = 80,
-  // We'll still allow a base animationDuration but mostly rely on distance-based horizontal moves
-  animationDuration = 300,
+  animationDuration = 300, // used as a small baseline if needed
   fadeOutDuration = 800,
   maxTrailLength = 50,
 }) => {
-  // Animated values for the circle’s horizontal and vertical movement
+  // Animated values for the circle’s position
   const dotPositionX = useRef(new Animated.Value(0)).current;
   const dotPositionY = useRef(new Animated.Value(0)).current;
 
-  // Current circle position in state (used for building the trail path)
+  // We store the circle's position in state for building the path
   const [circleX, setCircleX] = useState(0);
   const [circleY, setCircleY] = useState(0);
 
-  // For slope/direction checks (decides when to add new trail points)
+  // For deciding when to add path points
   const lastDirectionRef = useRef<'up' | 'down' | 'none'>('none');
   const lastSlopeRef = useRef(0);
 
-  // Array of points to draw the trailing path
+  // The array of points that builds the trailing path
   const [pathPoints, setPathPoints] = useState<{
     x: number;
     y: number;
@@ -54,14 +50,14 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
     isKeyPoint?: boolean;
   }[]>([]);
 
-  // Remember the previous active tab so we detect tab changes
+  // Track the previous tab to know when it changed
   const prevActiveIndexRef = useRef(activeIndex);
 
-  // Figure out the new X coordinate for the active tab
+  // Calculate the new X position for the target tab
   const tabWidth = screenWidth / numTabs;
   const targetX = activeIndex * tabWidth + tabWidth / 2;
 
-  // On first mount, set the initial position
+  // On mount, set initial position
   useEffect(() => {
     dotPositionX.setValue(targetX);
     dotPositionY.setValue(0);
@@ -73,89 +69,90 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
   }, []);
 
   useEffect(() => {
-    // If the activeIndex changed, we animate
+    // If the activeIndex changed, we animate from current -> new
     if (prevActiveIndexRef.current !== activeIndex) {
       prevActiveIndexRef.current = activeIndex;
 
-      // Clear existing path points so each tab change starts fresh
+      // Clear existing path points on each tab change (optional)
       setPathPoints([{ x: circleX, y: circleY, timestamp: Date.now() }]);
 
-      // 1) Calculate distance and midpoint
+      // 1) Compute distance & direction
       const startX = circleX;
       const endX = targetX;
-      const distance = Math.abs(endX - startX);
-      const midX = startX + (endX - startX) / 2;
+      const distX = endX - startX; // could be negative if going left
+      const distance = Math.abs(distX);
 
-      // 2) Decide how long to take for half the horizontal travel
-      //    We'll define a simple "speed" approach: ~1 px per ms
-      //    Adjust the speed constant to taste if it feels too fast/slow.
-      const speedPxPerMs = 1.0;
-      const halfDistance = distance / 2;
-      const moveHalfDuration = Math.round(halfDistance / speedPxPerMs);
+      // 2) We'll define a total horizontal travel time based on distance.
+      //    This is a simple linear formula: let speed ~ 2ms per px plus a small base time.
+      const baseTime = 300; // minimal base
+      const speedFactor = 2; // ms per px
+      const totalHorizontalTime = baseTime + distance * speedFactor;
 
-      // 3) Animate from start -> midpoint at y=0
-      const moveStartToMid = Animated.timing(dotPositionX, {
-        toValue: midX,
-        duration: moveHalfDuration,
+      // 3) Animate dotPositionX from startX to endX over that total time
+      const moveHorizontally = Animated.timing(dotPositionX, {
+        toValue: endX,
+        duration: totalHorizontalTime,
         easing: Easing.inOut(Easing.ease),
         useNativeDriver: false,
       });
 
-      // 4) Build a heartbeat that does NOT depend on distance
-      //    According to your description: slight up, dip down, up more, down more,
-      //    up WAY more, down less, up a bit, back to line. 
-      //    We'll code them as negative = up, positive = down:
-      //       0 -> -5 (slight up)
-      //       -5 -> 10 (down)
-      //       10 -> -15 (up more)
-      //       -15 -> 20 (down more)
-      //       20 -> -30 (WAY up)
-      //       -30 -> 12 (down but less)
-      //       12 -> -8 (up a bit)
-      //       -8 -> 0 (back to line)
-      const heartbeatKeyframes = [
-        { toValue: -5,  duration: 60 },
-        { toValue: 10,  duration: 80 },
-        { toValue: -15, duration: 80 },
-        { toValue: 20,  duration: 90 },
-        { toValue: -30, duration: 100 },
-        { toValue: 12,  duration: 80 },
-        { toValue: -8,  duration: 60 },
-        { toValue: 0,   duration: 70 },
-      ];
+      // 4) We want the heartbeat in the *middle* of that horizontal move.
+      //    The heartbeat is a fixed shape over ~400ms. We simply run Y up/down
+      //    in the middle portion of the X travel. The circle keeps moving forward in X.
+      //    We'll do:
+      //      - Delay for half of the leftover time
+      //      - Heartbeat (400ms)
+      //      - Delay for the remaining time
+      //
+      //    If totalHorizontalTime < 400, we'll clamp to avoid negative delays.
+      const heartbeatDuration = 400;
+      const spareTime = Math.max(0, totalHorizontalTime - heartbeatDuration);
+      const halfDelay = spareTime / 2;
 
-      // Turn these into a sequence of animated.timing calls
-      const heartbeatAnimations = heartbeatKeyframes.map(({ toValue, duration }) =>
+      // Our specific heartbeat shape:
+      //    0 -> -5   (slight up)
+      //    -5 -> 10  (down)
+      //    10 -> -15 (bigger up)
+      //    -15 -> 20 (bigger down)
+      //    20 -> -30 (way up)
+      //    -30 -> 12 (down less)
+      //    12 -> -8  (up a bit)
+      //    -8 -> 0   (back to baseline)
+      // We'll define durations that sum ~400ms total.
+      const heartbeatKeyframes = [
+        { toValue: -5,   duration: 20 },
+        { toValue: 10,   duration: 20 },
+        { toValue: -15,  duration: 20 },
+        { toValue: 20,   duration: 20 },
+        { toValue: -30,  duration: 20 },
+        { toValue: 12,   duration: 20 },
+        { toValue: -8,   duration: 20 },
+        { toValue: 0,    duration: 20 },
+      ];
+      // Turn that into a single Animated.sequence
+      const heartbeatAnims = heartbeatKeyframes.map((step) =>
         Animated.timing(dotPositionY, {
-          toValue,
-          duration,
+          toValue: step.toValue,
+          duration: step.duration,
           easing: Easing.linear,
           useNativeDriver: false,
         })
       );
+      const heartbeatSequence = Animated.sequence(heartbeatAnims);
 
-      // Combine them into one sequence
-      const heartbeatSequence = Animated.sequence(heartbeatAnimations);
+      // Combine the middle delay + heartbeat + trailing delay
+      const ySequence = Animated.sequence([
+        Animated.delay(halfDelay),
+        heartbeatSequence,
+        Animated.delay(halfDelay),
+      ]);
 
-      // 5) Animate from midpoint -> endX (back at y=0)
-      //    We'll do the same duration as the first half so that total horizontal
-      //    time is proportional to distance, but the heartbeat itself is fixed.
-      const moveMidToEnd = Animated.timing(dotPositionX, {
-        toValue: endX,
-        duration: moveHalfDuration,
-        easing: Easing.inOut(Easing.ease),
-        useNativeDriver: false,
-      });
-
-      // 6) Run them in order:
-      //    - Start -> Mid
-      //    - Heartbeat (only vertical bobbing)
-      //    - Mid -> End
-      Animated.sequence([moveStartToMid, heartbeatSequence, moveMidToEnd]).start();
+      // 5) Run X and Y in parallel
+      Animated.parallel([moveHorizontally, ySequence]).start();
     }
   }, [activeIndex, targetX]);
 
-  // Listen for changes in the animated X/Y to update circleX/circleY in state
+  // Update circleX/circleY whenever dotPositionX or dotPositionY changes
   useEffect(() => {
     const xSub = dotPositionX.addListener(({ value }) => setCircleX(value));
     const ySub = dotPositionY.addListener(({ value }) => setCircleY(value));
@@ -167,8 +164,7 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
   }, [dotPositionX, dotPositionY]);
 
   /**
-   * Continuously sample the circle’s position to add new points to the trailing path.
-   * We add points when direction or slope changes, or enough distance/time passes.
+   * Continuously sample the circle’s position for the trailing path.
    */
   useEffect(() => {
     let rafId: number;
@@ -184,40 +180,37 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
         if (dy > 0.5) currentDirection = 'down';
         else if (dy < -0.5) currentDirection = 'up';
 
-        // Slope for "sharp" changes
+        // Slope
         let currentSlope = 0;
         if (Math.abs(dx) > 0.1) {
           currentSlope = dy / dx;
         }
 
-        // Distance since last point
+        // Distance from last point
         const dist = Math.sqrt(dx * dx + dy * dy);
         // Time since last point
-        const timeSinceLastPoint = Date.now() - lastPoint.timestamp;
+        const timeSinceLast = Date.now() - lastPoint.timestamp;
 
-        // Conditions to add a point
+        // Decide if we add a new point
         const directionChanged =
           lastDirectionRef.current !== currentDirection && currentDirection !== 'none';
         const slopeChanged = Math.abs(currentSlope - lastSlopeRef.current) > 0.5;
         const movedEnough = dist > 3;
-        const tooLong = timeSinceLastPoint > 50; // avoid big time gaps
+        const tooLong = timeSinceLast > 50;
 
-        const shouldAdd = directionChanged || slopeChanged || movedEnough || tooLong;
+        if (directionChanged || slopeChanged || movedEnough || tooLong) {
+          const now = Date.now();
+          const isKeyPoint = directionChanged || Math.abs(dy) > 10 || Math.abs(circleY) > 20;
 
-        // Mark "key" points if we have big vertical shifts
-        const isKeyPoint = directionChanged || Math.abs(dy) > 10 || Math.abs(circleY) > 20;
-
-        if (shouldAdd) {
           setPathPoints((prev) => {
-            const now = Date.now();
             const newPoint = { x: circleX, y: circleY, timestamp: now, isKeyPoint };
             const updated = [...prev, newPoint];
 
-            // Remove old points beyond the fadeOutDuration
+            // Fade out older points
             const cutoff = now - fadeOutDuration;
             const filtered = updated.filter((p) => p.timestamp >= cutoff);
 
-            // Also limit total number of points
+            // Limit total points
             if (filtered.length > maxTrailLength) {
               return filtered.slice(filtered.length - maxTrailLength);
             }
@@ -236,22 +229,19 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
   }, [circleX, circleY, pathPoints, fadeOutDuration, maxTrailLength]);
 
   /**
-   * Helper to define a quicker fade curve: fully visible for the first ~20%,
-   * then quickly fade to invisible by ~40% of its lifetime.
+   * Fades the line segments quickly after ~20% of life, fully by 40%.
    */
   const getNonLinearFade = (linearPercent: number) => {
     const fadeStart = 0.2;
     const fadeEnd = 0.4;
-
-    if (linearPercent < fadeStart) return 0; // 0% fade
-    if (linearPercent >= fadeEnd) return 1;  // 100% fade
-
+    if (linearPercent < fadeStart) return 0;
+    if (linearPercent >= fadeEnd) return 1;
     const t = (linearPercent - fadeStart) / (fadeEnd - fadeStart);
     return Math.pow(t, 1.75);
   };
 
   /**
-   * Interpolate between `color` and BACKGROUND_COLOR based on how "old" the point is.
+   * Interpolate the segment color from the main color to BACKGROUND_COLOR over time.
    */
   const interpolateColor = (linearPercent: number) => {
     const fadePercent = getNonLinearFade(linearPercent);
@@ -273,10 +263,7 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
       .padStart(2, '0')}`;
   };
 
-  /**
-   * Build up the path’s SVG segments from the stored points, applying
-   * color fade-out based on time since each segment was drawn.
-   */
+  // Build path segments
   const now = Date.now();
   const segments = [];
 
@@ -291,12 +278,12 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
       const fadeRatio = age / fadeOutDuration;
       const segmentColor = interpolateColor(fadeRatio);
 
-      // Convert local Y (0 at circle baseline) to SVG coords (0 at top)
+      // Convert local y=0 (circle baseline) to top-based for SVG
       const p1y = screenHeight - (tabBarHeight + p1.y);
       const p2y = screenHeight - (tabBarHeight + p2.y);
 
-      const isImportantSegment = p1.isKeyPoint || p2.isKeyPoint;
-      const strokeWidth = isImportantSegment ? dotSize + 0.5 : dotSize - 1;
+      const isImportant = p1.isKeyPoint || p2.isKeyPoint;
+      const strokeWidth = isImportant ? dotSize + 0.5 : dotSize - 1;
 
       segments.push(
         <Path
@@ -311,16 +298,13 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
     }
   }
 
-  // Circle position in SVG coords
+  // The circle's SVG y-position
   const circleTopY = screenHeight - (tabBarHeight + circleY);
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Svg width="100%" height="100%">
-        {/* The trail segments behind the circle */}
         {segments}
-
-        {/* The moving circle on top */}
         <Circle cx={circleX} cy={circleTopY} r={dotSize / 2} fill={color} />
       </Svg>
     </View>

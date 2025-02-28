@@ -15,7 +15,7 @@ const AnimatedTabIndicator: React.FC<AnimatedTabIndicatorProps> = ({
   activeIndex,
   numTabs,
   color,
-  dotSize = 6,
+  dotSize = 2,
   tabBarHeight = 80,
 }) => {
   // Create an animated value for the dot position
