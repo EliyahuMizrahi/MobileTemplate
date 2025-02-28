@@ -26,7 +26,6 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
   color,
   dotSize = 2,
   tabBarHeight = 80,
-  animationDuration = 300, // used as a small baseline if needed
   fadeOutDuration = 800,
   maxTrailLength = 50,
 }) => {
@@ -84,7 +83,7 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
 
       // 2) We'll define a total horizontal travel time based on distance.
       //    This is a simple linear formula: let speed ~ 2ms per px plus a small base time.
-      const baseTime = 300; // minimal base
+      const baseTime = 50; // minimal base
       const speedFactor = 2; // ms per px
       const totalHorizontalTime = baseTime + distance * speedFactor;
 
@@ -92,7 +91,7 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
       const moveHorizontally = Animated.timing(dotPositionX, {
         toValue: endX,
         duration: totalHorizontalTime,
-        easing: Easing.inOut(Easing.ease),
+        easing: Easing.out(Easing.ease), //change to inOut if u want it to start slow, but thats not as cool
         useNativeDriver: false,
       });
 
@@ -105,9 +104,9 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
       //      - Delay for the remaining time
       //
       //    If totalHorizontalTime < 400, we'll clamp to avoid negative delays.
-      const heartbeatDuration = 400;
+      const heartbeatDuration = 200;
       const spareTime = Math.max(0, totalHorizontalTime - heartbeatDuration);
-      const halfDelay = spareTime / 2;
+      const halfDelay = spareTime / 1.5;
 
       // Our specific heartbeat shape:
       //    0 -> -5   (slight up)
@@ -283,7 +282,7 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
       const p2y = screenHeight - (tabBarHeight + p2.y);
 
       const isImportant = p1.isKeyPoint || p2.isKeyPoint;
-      const strokeWidth = isImportant ? dotSize + 0.5 : dotSize - 1;
+      const strokeWidth = isImportant ? dotSize - 3 : dotSize - 3;
 
       segments.push(
         <Path
