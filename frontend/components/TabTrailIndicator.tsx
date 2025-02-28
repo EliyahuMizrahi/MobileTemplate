@@ -91,7 +91,7 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
       const moveHorizontally = Animated.timing(dotPositionX, {
         toValue: endX,
         duration: totalHorizontalTime,
-        easing: Easing.out(Easing.ease), //change to inOut if u want it to start slow, but thats not as cool
+        easing: Easing.out(Easing.ease), //change to inOut if u want it to start slow, but thats not as cool.
         useNativeDriver: false,
       });
 
