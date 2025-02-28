@@ -8,191 +8,157 @@ interface TabTrailIndicatorProps {
   color: string;
   dotSize?: number;
   tabBarHeight?: number;
-  animationDuration?: number;
+  animationDuration?: number; // not as crucial now; we use a distance-based approach
   fadeOutDuration?: number;
   maxTrailLength?: number;
 }
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-// Background color to fade to (matching your app's background)
+// Background color to fade into (same as your tab bar background or screen background)
 const BACKGROUND_COLOR = '#161622';
 
+/**
+ * This component animates a circle (dot) from one tab to another and
+ * briefly runs a "heartbeat" in the middle of that move, then continues
+ * to the final position. The heartbeat is always the same shape.
+ */
 const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
   activeIndex,
   numTabs,
   color,
   dotSize = 8,
   tabBarHeight = 80,
+  // We'll still allow a base animationDuration but mostly rely on distance-based horizontal moves
   animationDuration = 300,
-  fadeOutDuration = 200,
+  fadeOutDuration = 800,
   maxTrailLength = 50,
 }) => {
-  // Animated values for the dot's horizontal/vertical movement
+  // Animated values for the circle’s horizontal and vertical movement
   const dotPositionX = useRef(new Animated.Value(0)).current;
   const dotPositionY = useRef(new Animated.Value(0)).current;
 
-  // Track the circle's current position in plain state for building the trail
+  // Current circle position in state (used for building the trail path)
   const [circleX, setCircleX] = useState(0);
   const [circleY, setCircleY] = useState(0);
-  
-  // For tracking when to add points to the trail
+
+  // For slope/direction checks (decides when to add new trail points)
   const lastDirectionRef = useRef<'up' | 'down' | 'none'>('none');
   const lastSlopeRef = useRef(0);
 
-  // Keep an array of points for the trailing path
-  const [pathPoints, setPathPoints] = useState<{ 
-    x: number; 
-    y: number; 
+  // Array of points to draw the trailing path
+  const [pathPoints, setPathPoints] = useState<{
+    x: number;
+    y: number;
     timestamp: number;
-    isKeyPoint?: boolean; // Mark important points in the heartbeat
+    isKeyPoint?: boolean;
   }[]>([]);
 
-  // For detecting direction changes
+  // Remember the previous active tab so we detect tab changes
   const prevActiveIndexRef = useRef(activeIndex);
-  
-  // For tracking animation state
-  const isAnimatingRef = useRef(false);
 
-  // Calculate the new X position for the target tab
+  // Figure out the new X coordinate for the active tab
   const tabWidth = screenWidth / numTabs;
   const targetX = activeIndex * tabWidth + tabWidth / 2;
 
-  // On mount, set initial position
+  // On first mount, set the initial position
   useEffect(() => {
-    const initialX = targetX;
-    dotPositionX.setValue(initialX);
+    dotPositionX.setValue(targetX);
     dotPositionY.setValue(0);
-    setCircleX(initialX);
+    setCircleX(targetX);
     setCircleY(0);
 
-    // Add initial point
-    setPathPoints([{ x: initialX, y: 0, timestamp: Date.now() }]);
+    // Start the path with an initial point
+    setPathPoints([{ x: targetX, y: 0, timestamp: Date.now() }]);
   }, []);
 
-  // Animate dot to new tab + realistic heartbeat pattern
   useEffect(() => {
+    // If the activeIndex changed, we animate
     if (prevActiveIndexRef.current !== activeIndex) {
       prevActiveIndexRef.current = activeIndex;
-      isAnimatingRef.current = true;
-      
-      // Clear existing path points when changing tabs
+
+      // Clear existing path points so each tab change starts fresh
       setPathPoints([{ x: circleX, y: circleY, timestamp: Date.now() }]);
+
+      // 1) Calculate distance and midpoint
+      const startX = circleX;
+      const endX = targetX;
+      const distance = Math.abs(endX - startX);
+      const midX = startX + (endX - startX) / 2;
+
+      // 2) Decide how long to take for half the horizontal travel
+      //    We'll define a simple "speed" approach: ~1 px per ms
+      //    Adjust the speed constant to taste if it feels too fast/slow.
+      const speedPxPerMs = 1.0;
+      const halfDistance = distance / 2;
+      const moveHalfDuration = Math.round(halfDistance / speedPxPerMs);
+
+      // 3) Animate from start -> midpoint at y=0
+      const moveStartToMid = Animated.timing(dotPositionX, {
+        toValue: midX,
+        duration: moveHalfDuration,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: false,
+      });
+
+      // 4) Build a heartbeat that does NOT depend on distance
+      //    According to your description: slight up, dip down, up more, down more,
+      //    up WAY more, down less, up a bit, back to line. 
+      //    We'll code them as negative = up, positive = down:
+      //       0 -> -5 (slight up)
+      //       -5 -> 10 (down)
+      //       10 -> -15 (up more)
+      //       -15 -> 20 (down more)
+      //       20 -> -30 (WAY up)
+      //       -30 -> 12 (down but less)
+      //       12 -> -8 (up a bit)
+      //       -8 -> 0 (back to line)
+      const heartbeatKeyframes = [
+        { toValue: -5,  duration: 60 },
+        { toValue: 10,  duration: 80 },
+        { toValue: -15, duration: 80 },
+        { toValue: 20,  duration: 90 },
+        { toValue: -30, duration: 100 },
+        { toValue: 12,  duration: 80 },
+        { toValue: -8,  duration: 60 },
+        { toValue: 0,   duration: 70 },
+      ];
+
+      // Turn these into a sequence of animated.timing calls
+      const heartbeatAnimations = heartbeatKeyframes.map(({ toValue, duration }) =>
+        Animated.timing(dotPositionY, {
+          toValue,
+          duration,
+          easing: Easing.linear,
+          useNativeDriver: false,
+        })
+      );
+
+      // Combine them into one sequence
+      const heartbeatSequence = Animated.sequence(heartbeatAnimations);
+
+      // 5) Animate from midpoint -> endX (back at y=0)
+      //    We'll do the same duration as the first half so that total horizontal
+      //    time is proportional to distance, but the heartbeat itself is fixed.
+      const moveMidToEnd = Animated.timing(dotPositionX, {
+        toValue: endX,
+        duration: moveHalfDuration,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: false,
+      });
+
+      // 6) Run them in order:
+      //    - Start -> Mid
+      //    - Heartbeat (only vertical bobbing)
+      //    - Mid -> End
+      Animated.sequence([moveStartToMid, heartbeatSequence, moveMidToEnd]).start();
     }
+  }, [activeIndex, targetX]);
 
-    // Move horizontally
-    const moveHorizontal = Animated.timing(dotPositionX, {
-      toValue: targetX,
-      duration: animationDuration,
-      useNativeDriver: false,
-      easing: Easing.inOut(Easing.ease),
-    });
-
-    // Reset Y first
-    const resetY = Animated.timing(dotPositionY, {
-      toValue: 0,
-      duration: 0,
-      useNativeDriver: false,
-    });
-
-    // Start the heartbeat sequence after most of horizontal movement is done
-    const startHeartbeatAt = animationDuration * 0.2;
-    const delayBeforeHeartbeat = Animated.delay(startHeartbeatAt);
-    
-    // Define an EKG-like heartbeat with sharp spikes
-    // P wave (small bump up)
-    const pWave = Animated.timing(dotPositionY, {
-      toValue: -5,
-      duration: 40,
-      useNativeDriver: false,
-      easing: Easing.out(Easing.cubic),
-    });
-    
-    // P-Q segment (back to baseline)
-    const pqSegment = Animated.timing(dotPositionY, {
-      toValue: 0,
-      duration: 20,
-      useNativeDriver: false,
-      easing: Easing.linear,
-    });
-    
-    // QRS complex (sharp down spike)
-    const qSpike = Animated.timing(dotPositionY, {
-      toValue: 10,
-      duration: 10,
-      useNativeDriver: false,
-      easing: Easing.in(Easing.cubic),
-    });
-    
-    // R spike (sharp up spike)
-    const rSpike = Animated.timing(dotPositionY, {
-      toValue: -30,
-      duration: 20,
-      useNativeDriver: false,
-      easing: Easing.out(Easing.cubic),
-    });
-    
-    // S spike (sharp down)
-    const sSpike = Animated.timing(dotPositionY, {
-      toValue: 15,
-      duration: 15,
-      useNativeDriver: false,
-      easing: Easing.in(Easing.cubic),
-    });
-    
-    // ST segment (return to baseline)
-    const stSegment = Animated.timing(dotPositionY, {
-      toValue: 3,
-      duration: 20,
-      useNativeDriver: false,
-      easing: Easing.out(Easing.cubic),
-    });
-    
-    // T wave (rounded bump up)
-    const tWave = Animated.timing(dotPositionY, {
-      toValue: -8,
-      duration: 30,
-      useNativeDriver: false,
-      easing: Easing.inOut(Easing.cubic),
-    });
-    
-    // Back to baseline
-    const backToBaseline = Animated.timing(dotPositionY, {
-      toValue: 0,
-      duration: 20,
-      useNativeDriver: false,
-      easing: Easing.inOut(Easing.cubic),
-    });
-
-    const heartbeatSequence = Animated.sequence([
-      delayBeforeHeartbeat,
-      pWave,         // P peak
-      pqSegment,     
-      qSpike,        // Q valley
-      rSpike,        // R peak (main spike)
-      sSpike,        // S valley
-      stSegment,     
-      tWave,         // T peak
-      backToBaseline
-    ]);
-
-    // Run them in parallel
-    Animated.parallel([
-      moveHorizontal,
-      Animated.sequence([resetY, heartbeatSequence]),
-    ]).start(() => {
-      isAnimatingRef.current = false;
-    });
-  }, [activeIndex, targetX, animationDuration]);
-
-  // Listen for X/Y changes from the animation, update circleX / circleY
+  // Listen for changes in the animated X/Y to update circleX/circleY in state
   useEffect(() => {
-    const xSub = dotPositionX.addListener(({ value }) => {
-      setCircleX(value);
-    });
-    const ySub = dotPositionY.addListener(({ value }) => {
-      setCircleY(value);
-    });
+    const xSub = dotPositionX.addListener(({ value }) => setCircleX(value));
+    const ySub = dotPositionY.addListener(({ value }) => setCircleY(value));
 
     return () => {
       dotPositionX.removeListener(xSub);
@@ -200,157 +166,135 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
     };
   }, [dotPositionX, dotPositionY]);
 
-  // Sample the current dot position strategically
+  /**
+   * Continuously sample the circle’s position to add new points to the trailing path.
+   * We add points when direction or slope changes, or enough distance/time passes.
+   */
   useEffect(() => {
     let rafId: number;
 
-    const update = () => {
+    const updatePath = () => {
       if (pathPoints.length > 0) {
         const lastPoint = pathPoints[pathPoints.length - 1];
+        const dx = circleX - lastPoint.x;
         const dy = circleY - lastPoint.y;
-        
-        // Determine current direction
+
+        // Basic direction detection
         let currentDirection: 'up' | 'down' | 'none' = 'none';
         if (dy > 0.5) currentDirection = 'down';
         else if (dy < -0.5) currentDirection = 'up';
-        
-        // Calculate slope to detect significant changes
-        const dx = circleX - lastPoint.x;
+
+        // Slope for "sharp" changes
         let currentSlope = 0;
         if (Math.abs(dx) > 0.1) {
           currentSlope = dy / dx;
         }
-        
-        // Distance moved
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        // Detect if we need to add a point
-        const directionChanged = lastDirectionRef.current !== currentDirection && 
-                               currentDirection !== 'none';
-        const significantSlopeChange = Math.abs(currentSlope - lastSlopeRef.current) > 0.5;
-        const movedSignificantly = distance > 3;
+
+        // Distance since last point
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        // Time since last point
         const timeSinceLastPoint = Date.now() - lastPoint.timestamp;
-        const tooLongSinceLastPoint = timeSinceLastPoint > 50; // Avoid gaps if no movement
-        
-        // Add points strategically
-        const shouldAddPoint = directionChanged || 
-                              significantSlopeChange || 
-                              movedSignificantly || 
-                              tooLongSinceLastPoint;
-        
-        // Mark key points at extremes of the heartbeat pattern
-        const isKeyPoint = directionChanged || 
-                          (Math.abs(dy) > 10) || 
-                          (Math.abs(circleY) > 20);
-        
-        if (shouldAddPoint) {
-          setPathPoints(prev => {
+
+        // Conditions to add a point
+        const directionChanged =
+          lastDirectionRef.current !== currentDirection && currentDirection !== 'none';
+        const slopeChanged = Math.abs(currentSlope - lastSlopeRef.current) > 0.5;
+        const movedEnough = dist > 3;
+        const tooLong = timeSinceLastPoint > 50; // avoid big time gaps
+
+        const shouldAdd = directionChanged || slopeChanged || movedEnough || tooLong;
+
+        // Mark "key" points if we have big vertical shifts
+        const isKeyPoint = directionChanged || Math.abs(dy) > 10 || Math.abs(circleY) > 20;
+
+        if (shouldAdd) {
+          setPathPoints((prev) => {
             const now = Date.now();
-            
-            // New points
-            const newPoint = { 
-              x: circleX, 
-              y: circleY, 
-              timestamp: now,
-              isKeyPoint
-            };
-            
-            const newPoints = [...prev, newPoint];
-            
-            // Remove old points beyond fadeOutDuration
+            const newPoint = { x: circleX, y: circleY, timestamp: now, isKeyPoint };
+            const updated = [...prev, newPoint];
+
+            // Remove old points beyond the fadeOutDuration
             const cutoff = now - fadeOutDuration;
-            const filtered = newPoints.filter((p) => p.timestamp >= cutoff);
-            
-            // Limit how many total points we keep
+            const filtered = updated.filter((p) => p.timestamp >= cutoff);
+
+            // Also limit total number of points
             if (filtered.length > maxTrailLength) {
               return filtered.slice(filtered.length - maxTrailLength);
             }
-            
             return filtered;
           });
-          
-          // Update refs
+
           lastDirectionRef.current = currentDirection;
           lastSlopeRef.current = currentSlope;
         }
       }
-      
-      rafId = requestAnimationFrame(update);
+      rafId = requestAnimationFrame(updatePath);
     };
 
-    rafId = requestAnimationFrame(update);
+    rafId = requestAnimationFrame(updatePath);
     return () => cancelAnimationFrame(rafId);
-  }, [circleX, circleY, fadeOutDuration, maxTrailLength, pathPoints]);
+  }, [circleX, circleY, pathPoints, fadeOutDuration, maxTrailLength]);
 
-  // Helper function to create a custom fade curve
-  // Starts fading at 30% of lifetime and fully fades out by 50%
+  /**
+   * Helper to define a quicker fade curve: fully visible for the first ~20%,
+   * then quickly fade to invisible by ~40% of its lifetime.
+   */
   const getNonLinearFade = (linearPercent: number) => {
-    // Configure when the fade starts and ends
-    const fadeStartPercent = 0.3;   // Start fading at 30% of lifetime
-    const fadeEndPercent = 0.5;     // Fully faded out by 50% of lifetime
-    
-    if (linearPercent < fadeStartPercent) {
-      // Before fade start, stay at full color (0% fade)
-      return 0;
-    } else if (linearPercent >= fadeEndPercent) {
-      // After fade end, be completely faded (100% fade)
-      return 1;
-    } else {
-      // In the fade window, create a smooth transition
-      // Map fadeStartPercent-fadeEndPercent to 0.0-1.0
-      const normalizedPercent = (linearPercent - fadeStartPercent) / (fadeEndPercent - fadeStartPercent);
-      // Use a slightly steeper curve for faster initial fade
-      return Math.pow(normalizedPercent, 1.5);
-    }
+    const fadeStart = 0.2;
+    const fadeEnd = 0.4;
+
+    if (linearPercent < fadeStart) return 0; // 0% fade
+    if (linearPercent >= fadeEnd) return 1;  // 100% fade
+
+    const t = (linearPercent - fadeStart) / (fadeEnd - fadeStart);
+    return Math.pow(t, 1.75);
   };
 
-  // Helper function to interpolate between colors based on percentage (0-1)
+  /**
+   * Interpolate between `color` and BACKGROUND_COLOR based on how "old" the point is.
+   */
   const interpolateColor = (linearPercent: number) => {
-    // Apply non-linear curve to the fade percentage
     const fadePercent = getNonLinearFade(linearPercent);
-    
-    // Parse the hex colors
+
     const r1 = parseInt(color.slice(1, 3), 16);
     const g1 = parseInt(color.slice(3, 5), 16);
     const b1 = parseInt(color.slice(5, 7), 16);
-    
+
     const r2 = parseInt(BACKGROUND_COLOR.slice(1, 3), 16);
     const g2 = parseInt(BACKGROUND_COLOR.slice(3, 5), 16);
     const b2 = parseInt(BACKGROUND_COLOR.slice(5, 7), 16);
-    
-    // Interpolate between colors
+
     const r = Math.round(r1 + fadePercent * (r2 - r1));
     const g = Math.round(g1 + fadePercent * (g2 - g1));
     const b = Math.round(b1 + fadePercent * (b2 - b1));
-    
-    // Convert back to hex string
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b
+      .toString(16)
+      .padStart(2, '0')}`;
   };
 
-  // Build line segments
+  /**
+   * Build up the path’s SVG segments from the stored points, applying
+   * color fade-out based on time since each segment was drawn.
+   */
   const now = Date.now();
   const segments = [];
-  
+
   for (let i = 1; i < pathPoints.length; i++) {
     const p1 = pathPoints[i - 1];
     const p2 = pathPoints[i];
 
-    // Age-based color fade instead of opacity
     const midTime = (p1.timestamp + p2.timestamp) / 2;
     const age = now - midTime;
-    
+
     if (age < fadeOutDuration) {
-      // Get fade percentage (0 = new, 1 = old)
-      const fadePercent = age / fadeOutDuration;
-      
-      // Get interpolated color
-      const segmentColor = interpolateColor(fadePercent);
-      
-      // Convert Y coordinates for SVG
+      const fadeRatio = age / fadeOutDuration;
+      const segmentColor = interpolateColor(fadeRatio);
+
+      // Convert local Y (0 at circle baseline) to SVG coords (0 at top)
       const p1y = screenHeight - (tabBarHeight + p1.y);
       const p2y = screenHeight - (tabBarHeight + p2.y);
-      
-      // Make key points of the heartbeat have slightly thicker lines
+
       const isImportantSegment = p1.isKeyPoint || p2.isKeyPoint;
       const strokeWidth = isImportantSegment ? dotSize + 0.5 : dotSize - 1;
 
@@ -367,22 +311,17 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
     }
   }
 
-  // Circle's top-based coordinate
+  // Circle position in SVG coords
   const circleTopY = screenHeight - (tabBarHeight + circleY);
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Svg width="100%" height="100%">
-        {/* First render the line segments (so they appear behind)... */}
+        {/* The trail segments behind the circle */}
         {segments}
 
-        {/* ...then the circle on top */}
-        <Circle
-          cx={circleX}
-          cy={circleTopY}
-          r={dotSize / 2}
-          fill={color}
-        />
+        {/* The moving circle on top */}
+        <Circle cx={circleX} cy={circleTopY} r={dotSize / 2} fill={color} />
       </Svg>
     </View>
   );
