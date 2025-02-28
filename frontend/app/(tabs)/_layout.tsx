@@ -7,7 +7,7 @@ import TabIcon from '@/components/TabIcon';
 
 const TabsLayout = () => {
   const activeColor = '#a5bbde';
-  const tabBarHeight = 80;
+  const tabBarHeight = 100;
 
   // Get the current pathname
   const pathname = usePathname();

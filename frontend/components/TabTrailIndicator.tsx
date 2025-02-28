@@ -119,14 +119,14 @@ const TabTrailIndicator: React.FC<TabTrailIndicatorProps> = ({
       //    -8 -> 0   (back to baseline)
       // We'll define durations that sum ~400ms total.
       const heartbeatKeyframes = [
-        { toValue: -5,   duration: 20 },
-        { toValue: 10,   duration: 20 },
-        { toValue: -15,  duration: 20 },
-        { toValue: 20,   duration: 20 },
-        { toValue: -30,  duration: 20 },
-        { toValue: 12,   duration: 20 },
-        { toValue: -8,   duration: 20 },
-        { toValue: 0,    duration: 20 },
+        { toValue: -5,   duration: 10 }, //20 dureation for pc but 10 for amazing mobile cream :weary:
+        { toValue: 10,   duration: 10 },
+        { toValue: -15,  duration: 10 },
+        { toValue: 20,   duration: 10 },
+        { toValue: -30,  duration: 10 },
+        { toValue: 12,   duration: 10 },
+        { toValue: -8,   duration: 10 },
+        { toValue: 0,    duration: 10 },
       ];
       // Turn that into a single Animated.sequence
       const heartbeatAnims = heartbeatKeyframes.map((step) =>
